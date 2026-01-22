@@ -17,6 +17,7 @@ class Pipe:
         TEXT_CTX_SIZE: int = Field(default=32768)
         VISION_CTX_SIZE: int = Field(default=131072)
         DOCS_DIR: str = Field(default="/Users/gta/Documents/LLM-Docs")
+        SERPAPI_KEY: str = Field(default="7fb623579ec799a4f091288f2c25a158c1ad5510f8fca745780641c02657b194")
 
     def __init__(self):
         self.valves = self.Valves()
@@ -71,6 +72,33 @@ class Pipe:
             return f"Error writing file: {e}"
 
     def _web_search(self, query: str) -> str:
+        # Use Google (SerpAPI) if key is set, otherwise DuckDuckGo
+        if self.valves.SERPAPI_KEY:
+            return self._google_search(query)
+        return self._ddg_search(query)
+
+    def _google_search(self, query: str) -> str:
+        try:
+            from serpapi import GoogleSearch
+            params = {
+                "q": query,
+                "api_key": self.valves.SERPAPI_KEY,
+                "num": 5
+            }
+            search = GoogleSearch(params)
+            results = search.get_dict().get("organic_results", [])
+            if not results:
+                return "No Google results found."
+            output = []
+            for i, r in enumerate(results[:5], 1):
+                output.append(f"**[{i}] {r.get('title', 'No title')}**")
+                output.append(f"{r.get('snippet', 'No description')}")
+                output.append(f"URL: {r.get('link', '')}\n")
+            return "\n".join(output)
+        except Exception as e:
+            return f"Google search error: {e}"
+
+    def _ddg_search(self, query: str) -> str:
         try:
             from ddgs import DDGS
             results = DDGS().text(query, max_results=5)
@@ -83,22 +111,24 @@ class Pipe:
                 output.append(f"URL: {r.get('href', '')}\n")
             return "\n".join(output)
         except Exception as e:
-            return f"Web search error: {e}"
+            return f"DuckDuckGo search error: {e}"
 
     def _check_special_request(self, text: str) -> tuple[str, str, str]:
+        text = text.strip()
         text_lower = text.lower()
 
-        # Web search - multiple triggers (use /web since #web gets stripped)
-        if text_lower.startswith('/web '):
-            return 'web', text[5:].strip(), ''
-        if text_lower.startswith('/search '):
-            return 'web', text[8:].strip(), ''
-        if text_lower.startswith('search for '):
-            return 'web', text[11:].strip(), ''
-        if text_lower.startswith('look up '):
-            return 'web', text[8:].strip(), ''
-        if text_lower.startswith('google '):
+        # Web search triggers
+        for prefix in ['google:', 'web:', 'search:', 'find online:', 'lookup:']:
+            if text_lower.startswith(prefix):
+                query = text[len(prefix):].strip()
+                if query:
+                    return 'web', query, ''
+
+        # Also handle without colon for some
+        if text_lower.startswith('lookup '):
             return 'web', text[7:].strip(), ''
+        if text_lower.startswith('find online '):
+            return 'web', text[12:].strip(), ''
 
         # List files
         if any(phrase in text_lower for phrase in ['list files', 'list my files', 'what files', 'show files', 'files in folder', 'my documents', 'local files']):
@@ -116,15 +146,17 @@ class Pipe:
             if match:
                 return 'read', match.group(1).strip(), ''
 
-        # Write file
-        write_patterns = [
-            r'(?:write|save|create) (?:a )?(?:file )?(?:called |named )?["\']?([^"\']+\.[a-z]+)["\']? with (?:content|contents)?[:\s]*(.+)',
-            r'(?:write|save) to ["\']?([^"\']+\.[a-z]+)["\']?[:\s]*(.+)',
-        ]
-        for pattern in write_patterns:
-            match = re.search(pattern, text_lower, re.DOTALL)
-            if match:
-                return 'write', match.group(1).strip(), match.group(2).strip()
+        # Write file - use write: command
+        if text_lower.startswith('write: '):
+            # Format: write: filename.txt content here
+            parts = text[7:].strip().split(' ', 1)
+            if len(parts) == 2 and '.' in parts[0]:
+                return 'write', parts[0], parts[1]
+
+        # Also detect "save file.txt: content"
+        write_match = re.search(r'(?:write|save|create)(?: file)? ([^\s]+\.[a-z]+)[:\s]+(.+)', text, re.DOTALL | re.IGNORECASE)
+        if write_match:
+            return 'write', write_match.group(1).strip(), write_match.group(2).strip()
 
         return '', '', ''
 
@@ -162,10 +194,53 @@ class Pipe:
         op, arg1, arg2 = self._check_special_request(text_content)
 
         if op == 'web':
-            yield f"**[Web Search: {arg1}]**\n\n"
+            engine = "Google" if self.valves.SERPAPI_KEY else "DuckDuckGo"
+            yield f"🔍 *Searching {engine}...*\n\n"
             search_results = self._web_search(arg1)
-            yield search_results
-            yield "\n\n---\n*Searching with DuckDuckGo*"
+
+            from datetime import datetime
+            today = datetime.now().strftime("%B %d, %Y")
+
+            # Feed search results to LLM for intelligent summary
+            search_prompt = f"""You have access to live web search. The following search results were JUST retrieved from {engine} on {today}. These are REAL, CURRENT results - not simulated.
+
+USER'S SEARCH QUERY: "{arg1}"
+
+LIVE {engine.upper()} SEARCH RESULTS (retrieved just now on {today}):
+{search_results}
+
+INSTRUCTIONS:
+- Summarize and answer based on THESE search results above
+- These results are LIVE and CURRENT - do NOT say you cannot access the internet
+- Be specific, cite the sources, mention relevant details from the snippets
+- If the results show current events, weather, news, etc., report them as current information"""
+
+            search_messages = [{"role": "user", "content": search_prompt}]
+
+            try:
+                response = requests.post(
+                    f"{self.valves.OLLAMA_BASE_URL}/api/chat",
+                    json={"model": self.valves.TEXT_MODEL, "messages": search_messages, "stream": True},
+                    stream=True,
+                    timeout=300
+                )
+
+                if response.status_code == 200:
+                    for line in response.iter_lines():
+                        if line:
+                            try:
+                                data = json.loads(line)
+                                chunk = data.get("message", {}).get("content", "")
+                                if chunk:
+                                    yield chunk
+                            except:
+                                continue
+                else:
+                    yield f"Error getting response: {response.status_code}"
+            except Exception as e:
+                yield f"Error: {e}"
+
+            yield f"\n\n---\n*{engine} search results processed by {self.valves.TEXT_MODEL}*"
             return
         if op == 'list':
             yield f"**[Local Files]**\n\n{self._list_files()}"

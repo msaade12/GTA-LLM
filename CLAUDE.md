@@ -135,10 +135,42 @@ ollama stop deepseek-r1:671b
 ## Features
 
 ### Web Search
+
+#### Option 1: Open WebUI Native (DuckDuckGo)
 - **Engine**: DuckDuckGo (no API key required)
 - **How to use**: Type `#web` before your question
 - **Example**: `#web what are the top restaurants in NYC`
 - **Package**: `ddgs` (installed via pipx inject)
+
+#### Option 2: GTA Function (Google via SerpAPI) - RECOMMENDED
+- **Engine**: Google (via SerpAPI)
+- **Free Tier**: 100 searches/month
+- **How to use**: Type `google:` before your query (when using GTA model)
+- **Example**: `google: weather in NYC today`
+
+**Triggers** (any of these work):
+| Prefix | Example |
+|--------|---------|
+| `google:` | `google: best pizza in NYC` |
+| `search:` | `search: latest news on AI` |
+| `web:` | `web: stock prices today` |
+| `lookup:` | `lookup: weather forecast` |
+
+**How it works**:
+1. GTA function detects the search prefix
+2. Fetches live results from Google via SerpAPI
+3. Passes results to the LLM with today's date
+4. LLM summarizes and answers based on the live results
+
+**SerpAPI Setup**:
+1. Sign up at https://serpapi.com (free tier: 100 searches/month)
+2. Get your API key from the dashboard
+3. The key is stored in `gta_pipe.py` in the Valves class
+
+**Why SerpAPI instead of scraping?**
+- Google blocks direct scraping (googlesearch-python returns 0 results)
+- DuckDuckGo results are inconsistent
+- SerpAPI provides reliable, structured Google results
 
 ### Document Upload
 - **Supported**: PDF, Word, text files, images
@@ -183,11 +215,14 @@ The LLM can immediately see and read them - no upload needed.
 - Compare reasoning between models
 
 ### GTA Smart Router (Custom Function)
-Auto-routes requests to the right model based on content.
+All-in-one function that handles vision, text, web search, and file access.
 
-**How it works**:
+**Features**:
 - **Image/screenshot detected** → Uses `llama3.2-vision:90b`
 - **Text only** → Uses `gpt-oss:120b`
+- **`google:` prefix** → Live Google search via SerpAPI
+- **`list files`** → Shows files in LLM-Docs folder
+- **`read filename.txt`** → Reads file contents
 
 **Setup**:
 1. Go to Admin → Functions → Add Function
@@ -201,6 +236,13 @@ Auto-routes requests to the right model based on content.
 - Total time
 - Tokens per second
 - Context window usage
+
+**Google Search Fix (2026-01-21)**:
+The original issue was that search results were displayed as raw links without the LLM understanding them. Fixed by:
+1. Switching from DuckDuckGo to Google via SerpAPI (100 free/month)
+2. Feeding search results to the LLM with explicit instructions that these are LIVE results
+3. Including today's date in the prompt so the LLM knows the results are current
+4. Telling the LLM to summarize the results, not claim it can't access the internet
 
 ---
 
@@ -494,13 +536,14 @@ lsof -i :11434
 - [x] Install Open WebUI via pipx
 - [x] Configure auto-start for all services
 - [x] Set up permanent Cloudflare tunnel (gta.ironlinkconnect.com)
-- [x] Enable web search (DuckDuckGo)
+- [x] Enable web search (DuckDuckGo + Google via SerpAPI)
 - [x] Configure multi-model support
 - [x] Move data to clean location (/Users/gta/Open-WebUI/)
 - [x] Enable Bot Fight Mode on Cloudflare
 - [x] Configure SSL/HTTPS (Always Use HTTPS)
 - [x] GTA Smart Router (auto vision/text model selection)
 - [x] GTA File Reader Tool (direct folder access)
+- [x] Google Search via SerpAPI (live results with LLM summarization)
 
 ## Optional Future Enhancements
 
