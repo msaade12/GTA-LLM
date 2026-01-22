@@ -146,17 +146,23 @@ class Pipe:
             if match:
                 return 'read', match.group(1).strip(), ''
 
-        # Write file - use write: command
-        if text_lower.startswith('write: '):
-            # Format: write: filename.txt content here
-            parts = text[7:].strip().split(' ', 1)
-            if len(parts) == 2 and '.' in parts[0]:
-                return 'write', parts[0], parts[1]
+        # Write file with content in message
+        write_patterns = [
+            r'(?:write|save|create) (?:a )?(?:file )?(?:called |named )?["\']?([^"\']+\.[a-z]+)["\']? with (?:content|contents)?[:\s]*(.+)',
+            r'(?:write|save) to ["\']?([^"\']+\.[a-z]+)["\']?[:\s]*(.+)',
+        ]
+        for pattern in write_patterns:
+            match = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
+            if match:
+                return 'write', match.group(1).strip(), match.group(2).strip()
 
-        # Also detect "save file.txt: content"
-        write_match = re.search(r'(?:write|save|create)(?: file)? ([^\s]+\.[a-z]+)[:\s]+(.+)', text, re.DOTALL | re.IGNORECASE)
-        if write_match:
-            return 'write', write_match.group(1).strip(), write_match.group(2).strip()
+        # Save previous response to file - multiple patterns
+        # Look for filename pattern (word.ext) anywhere after save/write keywords
+        if re.search(r'\b(?:write|save)\b', text_lower):
+            # Find any filename pattern in the text
+            filename_match = re.search(r'([a-zA-Z0-9_-]+\.[a-z]{2,4})\b', text)
+            if filename_match:
+                return 'write_previous', filename_match.group(1), ''
 
         return '', '', ''
 
@@ -195,7 +201,8 @@ class Pipe:
 
         if op == 'web':
             engine = "Google" if self.valves.SERPAPI_KEY else "DuckDuckGo"
-            yield f"🔍 *Searching {engine}...*\n\n"
+            model = self.valves.TEXT_MODEL
+            yield f"🔍 *Searching {engine}... Processing with `{model}`*\n\n"
             search_results = self._web_search(arg1)
 
             from datetime import datetime
@@ -216,11 +223,12 @@ INSTRUCTIONS:
 - If the results show current events, weather, news, etc., report them as current information"""
 
             search_messages = [{"role": "user", "content": search_prompt}]
+            stats = {}
 
             try:
                 response = requests.post(
                     f"{self.valves.OLLAMA_BASE_URL}/api/chat",
-                    json={"model": self.valves.TEXT_MODEL, "messages": search_messages, "stream": True},
+                    json={"model": model, "messages": search_messages, "stream": True},
                     stream=True,
                     timeout=300
                 )
@@ -233,6 +241,15 @@ INSTRUCTIONS:
                                 chunk = data.get("message", {}).get("content", "")
                                 if chunk:
                                     yield chunk
+                                if data.get("done"):
+                                    stats = {
+                                        "model": model,
+                                        "total_duration": data.get("total_duration", 0),
+                                        "prompt_tokens": data.get("prompt_eval_count", 0),
+                                        "completion_tokens": data.get("eval_count", 0),
+                                        "prompt_time": data.get("prompt_eval_duration", 0),
+                                        "eval_time": data.get("eval_duration", 0),
+                                    }
                             except:
                                 continue
                 else:
@@ -240,7 +257,23 @@ INSTRUCTIONS:
             except Exception as e:
                 yield f"Error: {e}"
 
-            yield f"\n\n---\n*{engine} search results processed by {self.valves.TEXT_MODEL}*"
+            # Show stats
+            if stats:
+                total_sec = stats["total_duration"] / 1e9
+                prompt_sec = stats["prompt_time"] / 1e9 if stats["prompt_time"] else 0.001
+                eval_sec = stats["eval_time"] / 1e9 if stats["eval_time"] else 0.001
+                prompt_tps = stats["prompt_tokens"] / prompt_sec
+                gen_tps = stats["completion_tokens"] / eval_sec
+                total_tokens = stats["prompt_tokens"] + stats["completion_tokens"]
+
+                yield f"\n\n<details>\n<summary>ℹ️ {engine} + {stats['model']} • {total_sec:.1f}s • {total_tokens:,} tokens</summary>\n\n"
+                yield f"| Metric | Value |\n|--------|-------|\n"
+                yield f"| Search Engine | {engine} |\n"
+                yield f"| Model | `{stats['model']}` |\n"
+                yield f"| Total Time | {total_sec:.1f}s |\n"
+                yield f"| Prompt | {stats['prompt_tokens']:,} tokens @ {prompt_tps:.1f} t/s |\n"
+                yield f"| Generated | {stats['completion_tokens']:,} tokens @ {gen_tps:.1f} t/s |\n"
+                yield f"\n</details>"
             return
         if op == 'list':
             yield f"**[Local Files]**\n\n{self._list_files()}"
@@ -250,6 +283,23 @@ INSTRUCTIONS:
             return
         if op == 'write':
             yield f"**[Writing: {arg1}]**\n\n{self._write_file(arg1, arg2)}"
+            return
+        if op == 'write_previous':
+            # Find the last assistant message to save
+            prev_content = ""
+            for m in reversed(messages[:-1]):  # Skip current message
+                if m.get("role") == "assistant":
+                    c = m.get("content", "")
+                    if isinstance(c, list):
+                        c = " ".join([i.get("text", "") if isinstance(i, dict) else str(i) for i in c])
+                    prev_content = c
+                    break
+            if prev_content:
+                # Clean up the content (remove stats details block if present)
+                prev_content = re.sub(r'\n\n<details>.*?</details>', '', prev_content, flags=re.DOTALL)
+                yield f"**[Saving previous response to: {arg1}]**\n\n{self._write_file(arg1, prev_content.strip())}"
+            else:
+                yield f"**[Error]** No previous response found to save."
             return
 
         model = self.valves.VISION_MODEL if has_image else self.valves.TEXT_MODEL
