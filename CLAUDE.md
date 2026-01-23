@@ -588,6 +588,8 @@ Automated tests that verify all app features work correctly.
 | Chat Sync | Chats saved to server, appear in list |
 | Settings | All sections load, sub-screens accessible |
 | Model Selection | Dropdown shows models, GTA-Main selectable |
+| Chat Dates | Chat timestamps display correctly |
+| Responsive Layout | UI adjusts for larger fonts/zoom settings |
 
 **Running Integration Tests**:
 
