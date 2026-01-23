@@ -593,6 +593,8 @@ Automated tests that verify all app features work correctly.
 
 **Running Integration Tests**:
 
+> ⚠️ **WARNING**: Integration tests (`flutter test`) reinstall the app each time, which may clear app data and require re-login. Use `flutter run` to keep the app installed persistently.
+
 ```bash
 cd /Users/gta/SRC/gta_chat
 
@@ -604,6 +606,20 @@ flutter test integration_test/advanced_test.dart -d 8CA1793B-F18F-483E-96F3-BC19
 
 # Run on Android device
 flutter test integration_test/app_test.dart -d <android_device_id>
+```
+
+**Running the App Normally (RECOMMENDED)**:
+
+```bash
+cd /Users/gta/SRC/gta_chat
+
+# Run on iOS simulator (debug mode, hot reload)
+flutter run -d 8CA1793B-F18F-483E-96F3-BC198467382F
+
+# Run on Android device (release mode for better performance)
+flutter run -d R5CXB32QRCT --release
+
+# The app stays installed after you close it
 ```
 
 **Test Credentials** (configured in test files):
@@ -643,6 +659,36 @@ Or more specifically:
 - [x] Google Search via SerpAPI (live results with LLM summarization)
 - [x] GTA Chat Flutter mobile app (iOS + Android)
 - [x] Integration tests for mobile app
+
+## Known Issues & Fixes
+
+### Chat Messages Not Saving (Fixed 2026-01-23)
+**Symptom**: Messages appear during chat but disappear when reopening the chat. Chats show as empty.
+
+**Cause**: The `streamChatCompletion` method sends messages for LLM inference but doesn't save them to the server. Messages only existed in local state and were lost on app restart.
+
+**Fix**: After streaming completes, the app now calls the update chat API to persist messages to the server:
+```dart
+// After streaming completes
+await _saveChat(chatId, messages);
+```
+
+### Chat Date Display Bug (Fixed 2026-01-23)
+**Symptom**: Chat list showed dates like "April 24" or "April 2" instead of current dates.
+
+**Cause**: The Open WebUI API returns timestamps as Unix epoch seconds (e.g., `1737616800`), but the Flutter app was using `DateTime.tryParse()` which expects ISO date strings. This caused incorrect parsing.
+
+**Fix**: Updated `ChatModel.fromJson()` in `chat_model.dart` to properly handle both Unix timestamps and ISO strings:
+```dart
+static DateTime _parseTimestamp(dynamic value) {
+  if (value is num) {
+    return DateTime.fromMillisecondsSinceEpoch((value * 1000).toInt());
+  }
+  // ... also handles ISO strings and numeric strings
+}
+```
+
+---
 
 ## Optional Future Enhancements
 
