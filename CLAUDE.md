@@ -523,7 +523,102 @@ lsof -i :11434
 # Custom Functions (paste into Open WebUI)
 /Users/gta/SRC/Local LLM/gta_pipe.py                    # GTA Smart Router function
 /Users/gta/SRC/Local LLM/gta_file_reader_tool.py        # GTA File Reader tool
+
+# Mobile App
+/Users/gta/SRC/gta_chat/                                # Flutter mobile app
+/Users/gta/SRC/gta_chat/integration_test/               # Automated integration tests
 ```
+
+---
+
+## GTA Chat Mobile App
+
+A Flutter mobile app that connects to Open WebUI for iOS and Android.
+
+**Repository**: https://github.com/msaade12/gta_chat
+**Location**: `/Users/gta/SRC/gta_chat/`
+
+### Features
+- Native iOS and Android app
+- Connects to Open WebUI via Cloudflare tunnel
+- Model selection (GTA-Main, DeepSeek, Llama Vision, etc.)
+- Chat history sync with server
+- Image/photo attachments for vision models
+- Google search via `google:` prefix (when using GTA model)
+- Stats display (tokens/sec, model used, context usage)
+
+### Running the App
+
+```bash
+# List available devices
+cd /Users/gta/SRC/gta_chat
+flutter devices
+
+# Run on iOS simulator
+flutter run -d <simulator_id>
+
+# Run on Android device (release mode)
+flutter run -d <device_id> --release
+
+# Build iOS app
+flutter build ios
+
+# Build Android APK
+flutter build apk --release
+```
+
+### Integration Tests
+
+Automated tests that verify all app features work correctly.
+
+**Test Files**:
+- `/Users/gta/SRC/gta_chat/integration_test/app_test.dart` - Basic UI navigation
+- `/Users/gta/SRC/gta_chat/integration_test/advanced_test.dart` - Advanced features
+
+**What the tests verify**:
+
+| Test | Description |
+|------|-------------|
+| Login Screen | Email/password validation, authentication |
+| Chat List | Load chats, create new chat, FAB button |
+| Chat Screen | Message input, model selector, attachment button |
+| Send Message | Send message to LLM, receive streaming response |
+| Google Search | `google:` prefix triggers live search results |
+| Photo Attachment | Camera/Photo Library options available |
+| Chat Sync | Chats saved to server, appear in list |
+| Settings | All sections load, sub-screens accessible |
+| Model Selection | Dropdown shows models, GTA-Main selectable |
+
+**Running Integration Tests**:
+
+```bash
+cd /Users/gta/SRC/gta_chat
+
+# Run basic UI tests on iOS simulator
+flutter test integration_test/app_test.dart -d 8CA1793B-F18F-483E-96F3-BC198467382F
+
+# Run advanced feature tests (sends actual messages to LLM)
+flutter test integration_test/advanced_test.dart -d 8CA1793B-F18F-483E-96F3-BC198467382F
+
+# Run on Android device
+flutter test integration_test/app_test.dart -d <android_device_id>
+```
+
+**Test Credentials** (configured in test files):
+- Email: `msaade1@yahoo.com`
+- Password: `99GT99gt$%`
+
+**Note**: Advanced tests send actual messages to the LLM and wait for responses, so they take longer (~3 minutes).
+
+### Quick Command for Claude
+
+To run tests in a new chat, just tell Claude:
+
+> "Run the Flutter integration tests for gta_chat on the iOS simulator"
+
+Or more specifically:
+
+> "Run `flutter test integration_test/advanced_test.dart` in the gta_chat project on the iPhone 13 simulator"
 
 ---
 
@@ -544,6 +639,8 @@ lsof -i :11434
 - [x] GTA Smart Router (auto vision/text model selection)
 - [x] GTA File Reader Tool (direct folder access)
 - [x] Google Search via SerpAPI (live results with LLM summarization)
+- [x] GTA Chat Flutter mobile app (iOS + Android)
+- [x] Integration tests for mobile app
 
 ## Optional Future Enhancements
 
@@ -554,4 +651,4 @@ lsof -i :11434
 
 ---
 
-*Last updated: 2026-01-21*
+*Last updated: 2026-01-23*
