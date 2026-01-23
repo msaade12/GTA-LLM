@@ -117,12 +117,18 @@ class Pipe:
         text = text.strip()
         text_lower = text.lower()
 
-        # Web search triggers
+        # Web search triggers - check ANYWHERE in the message
         for prefix in ['google:', 'web:', 'search:', 'find online:', 'lookup:']:
-            if text_lower.startswith(prefix):
-                query = text[len(prefix):].strip()
-                if query:
-                    return 'web', query, ''
+            idx = text_lower.find(prefix)
+            if idx != -1:
+                # Extract query: everything after the trigger
+                query_after = text[idx + len(prefix):].strip()
+                # Also include context before the trigger as part of the query
+                query_before = text[:idx].strip()
+                # Combine: use the full message as the search query (remove the trigger)
+                full_query = f"{query_before} {query_after}".strip()
+                if full_query:
+                    return 'web', full_query, ''
 
         # Also handle without colon for some
         if text_lower.startswith('lookup '):
