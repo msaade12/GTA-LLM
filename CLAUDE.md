@@ -1,5 +1,13 @@
 # Local LLM Setup Documentation
 
+## GOLDEN RULES - MUST FOLLOW
+
+1. **NEVER UNINSTALL APPS WHEN TESTING** - Always use `adb install -r` for Android and `xcrun simctl install` for iOS. These preserve app data (login state, settings). NEVER use `flutter install` or `flutter test` for manual testing as they wipe app data.
+
+2. **Preserve Login State** - Users should not have to re-login after app updates. Always use reinstall commands that preserve data.
+
+---
+
 ## System Overview
 
 ```
